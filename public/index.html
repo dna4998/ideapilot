@@ -86,10 +86,13 @@
 
     const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
-    // ── Storage ──
-    const STORAGE_KEY = "ideapilot-ideas";
-    const loadIdeas = () => { try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : []; } catch { return []; } };
-    const saveIdeas = (ideas) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas)); } catch {} };
+    // ── Database API ──
+    const DB = {
+      async loadIdeas() { try { const r = await fetch('/api/ideas'); if(!r.ok) throw 0; return await r.json(); } catch(e) { try { const r = localStorage.getItem('ideapilot-ideas'); return r ? JSON.parse(r) : []; } catch { return []; } } },
+      async createIdea(idea) { try { await fetch('/api/ideas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(idea)}); } catch {} },
+      async updateIdea(idea) { try { await fetch('/api/ideas',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(idea)}); } catch {} },
+      async deleteIdea(id) { try { await fetch('/api/ideas',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}); } catch {} }
+    };
 
     // ── SVG helper ──
     const svg = (props, ...children) => h('svg', props, ...children);
@@ -241,8 +244,8 @@ Keep responses focused and actionable. Use clear structure. Be direct — no flu
       const mediaRecorderRef = useRef(null);
       const textareaRef = useRef(null);
 
-      useEffect(() => { setIdeas(loadIdeas()); }, []);
-      useEffect(() => { saveIdeas(ideas); }, [ideas]);
+      useEffect(() => { DB.loadIdeas().then(setIdeas); }, []);
+      // Ideas persist via DB calls
       useEffect(() => { chatEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages, loading]);
       useEffect(() => {
         if (textareaRef.current) {
@@ -302,8 +305,10 @@ Keep responses focused and actionable. Use clear structure. Be direct — no flu
             const newI = {id:Date.now().toString(),title,messages:updated,createdAt:Date.now(),starred:false};
             setIdeas(prev => [newI,...prev]);
             setActiveIdea(newI.id);
+            DB.createIdea(newI);
           } else if (activeIdea) {
             setIdeas(prev => prev.map(i => i.id===activeIdea ? {...i,messages:updated} : i));
+            DB.updateIdea({id:activeIdea, messages:updated});
           }
         } catch (err) {
           setMessages(prev => [...prev, {role:"assistant",content:"Error: "+err.message+". Please check your connection.",timestamp:Date.now()}]);
@@ -342,8 +347,8 @@ Keep responses focused and actionable. Use clear structure. Be direct — no flu
       // Idea mgmt
       const newIdea = () => { setActiveIdea(null); setMessages([]); setInput(""); setAttachedFile(null); setMobileSidebar(false); };
       const openIdea = (id) => { const idea = ideas.find(i=>i.id===id); if(idea){setActiveIdea(id);setMessages(idea.messages||[]);setMobileSidebar(false);} };
-      const deleteIdea = (id) => { setIdeas(prev=>prev.filter(i=>i.id!==id)); if(activeIdea===id){setActiveIdea(null);setMessages([]);} setDeleteConfirm(null); };
-      const toggleStar = (id) => { setIdeas(prev=>prev.map(i=>i.id===id?{...i,starred:!i.starred}:i)); };
+      const deleteIdea = (id) => { setIdeas(prev=>prev.filter(i=>i.id!==id)); if(activeIdea===id){setActiveIdea(null);setMessages([]);} setDeleteConfirm(null); DB.deleteIdea(id); };
+      const toggleStar = (id) => { const idea = ideas.find(i=>i.id===id); const ns=!idea?.starred; setIdeas(prev=>prev.map(i=>i.id===id?{...i,starred:ns}:i)); DB.updateIdea({id,starred:ns}); };
 
       // Share
       const getShareContent = (idea) => { if(!idea) return ""; let c = "IdeaPilot \u2014 "+idea.title+"\n"+"\u2500".repeat(40)+"\n\n"; idea.messages?.forEach(m=>{c+=(m.role==="user"?"You":"IdeaPilot")+": "+m.content+"\n\n";}); return c; };
